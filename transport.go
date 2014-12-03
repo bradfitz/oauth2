@@ -40,11 +40,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	req2 := cloneRequest(req) // per RoundTripper contract
-	typ := token.TokenType
-	if typ == "" {
-		typ = defaultTokenType
-	}
-	req.Header.Set("Authorization", token.Type()+" "+token.AccessToken)
+	token.SetAuthHeader(req2)
 	t.setModReq(req, req2)
 	res, err := t.base().RoundTrip(req2)
 	if err != nil {

@@ -104,6 +104,11 @@ func (t *Token) Type() string {
 	return "Bearer"
 }
 
+// SetAuthHeader sets the Authorization header to r using the access token in t.
+func (t *Token) SetAuthHeader(r *http.Request) {
+	r.Header.Set("Authorization", t.Type()+" "+t.AccessToken)
+}
+
 // Extra returns an extra field returned from the server during token
 // retrieval.
 func (t *Token) Extra(key string) string {
