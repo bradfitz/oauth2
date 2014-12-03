@@ -30,8 +30,8 @@ import (
 // If you don't care and aren't running on App Engine, you may use nil.
 type Context interface{}
 
-// Config is the typically 3-legged OAuth config, describing both the
-// client application and the server's URLs and credentials.
+// Config describes a typical 3-legged OAuth2 flow, with both the
+// client application information and the server's URLs.
 type Config struct {
 	// Client contains the Client ID and Secret.
 	Client ClientInfo
@@ -50,6 +50,7 @@ type Config struct {
 	Scopes []string
 }
 
+// ClientInfo contains the Client ID and secret.
 type ClientInfo struct {
 	// ID is the application's Client ID.
 	ID string
@@ -63,7 +64,8 @@ type TokenSource interface {
 	Token() (*Token, error)
 }
 
-// Endpoint are the OAuth 2.0 provider's authorization and token endpoints.
+// Endpoint are the OAuth 2.0 provider's authorization and token
+// endpoints.
 type Endpoint struct {
 	AuthURL  string
 	TokenURL string
