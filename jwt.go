@@ -50,6 +50,26 @@ type JWTConfig struct {
 	TokenURL string
 }
 
+// TokenSource returns a TokenSource that fetches tokens
+// using HTTP client from the provided context.
+//
+// See the the Context documentation.
+func (c *JWTConfig) TokenSource(ctx Context) TokenSource {
+	return jwtSource{contextClient(ctx), c}
+}
+
+// Client returns an HTTP client wrapping the context's
+// HTTP transport and adding Authorization headers with tokens
+// obtained from c.
+func (c *JWTConfig) Client(ctx Context) *http.Client {
+	return &http.Client{
+		Transport: &Transport{
+			Source: c.TokenSource(ctx),
+			Base:   contextClient(ctx).Transport,
+		},
+	}
+}
+
 // JWTClient requires OAuth 2.0 JWT credentials.
 // Required for the 2-legged JWT flow.
 /*
@@ -65,20 +85,6 @@ func JWTClient(email string, key []byte) Option {
 	}
 }
 */
-
-// Opts:
-// - Scopes
-// -
-//
-// - PrivateKey
-// - Subject
-// - Email
-// - AUD
-
-// NewJWTTokenSource new
-func NewJWTTokenSource(client *http.Client, conf *JWTConfig) TokenSource {
-	return jwtSource{client, conf}
-}
 
 type jwtSource struct {
 	client *http.Client

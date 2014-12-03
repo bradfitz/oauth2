@@ -33,8 +33,11 @@ type Context interface{}
 // Config describes a typical 3-legged OAuth2 flow, with both the
 // client application information and the server's URLs.
 type Config struct {
-	// Client contains the Client ID and Secret.
-	Client ClientInfo
+	// ClientID is the application's ID.
+	ClientID string
+
+	// ClientSecret is the application's secret.
+	ClientSecret string
 
 	// Endpoint contains the resource server's token endpoint
 	// URLs.  These are supplied by the server and are often
@@ -64,8 +67,8 @@ type TokenSource interface {
 	Token() (*Token, error)
 }
 
-// Endpoint are the OAuth 2.0 provider's authorization and token
-// endpoints.
+// Endpoint contains the OAuth 2.0 provider's authorization and token
+// endpoint URLs.
 type Endpoint struct {
 	AuthURL  string
 	TokenURL string
@@ -178,7 +181,7 @@ func (c *Config) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 	buf.WriteString(c.Endpoint.AuthURL)
 	v := url.Values{
 		"response_type": {"code"},
-		"client_id":     {c.Client.ID},
+		"client_id":     {c.ClientID},
 		"redirect_uri":  condVal(c.RedirectURL),
 		"scope":         condVal(strings.Join(c.Scopes, " ")),
 		"state":         condVal(state),
@@ -195,14 +198,17 @@ func (c *Config) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 	return buf.String()
 }
 
-// exchange converts an "exchange code" into a token.
+// Exchange converts an "exchange code" into a token.
 //
 // It is used after a resource provider redirects the user back
 // from the URL obtained from AuthCodeURL.
 //
 // The HTTP client to use is derived from the context. If nil,
-// http.DefaultClient is used.
-func (c *Config) exchange(ctx Context, code string) (*Token, error) {
+// http.DefaultClient is used. See the Context type's documentation.
+//
+// The code will be in the *http.Request.FormValue("code"). Before
+// calling Exchange, be sure to validate FormValue("state").
+func (c *Config) Exchange(ctx Context, code string) (*Token, error) {
 	cl := contextClient(ctx)
 	return retrieveToken(cl, c, url.Values{
 		"grant_type":   {"authorization_code"},
@@ -223,28 +229,28 @@ func contextClient(ctx Context) *http.Client {
 	panic("TODO: get it from App Engine")
 }
 
-// NewTransportFromCode exchanges the code to retrieve a new access token
-// and returns an authorized and authenticated Transport.
-func (c *Config) NewTransportFromCode(ctx Context, code string) *Transport {
-	return &Transport{
-		Source: &tokenRefresher{
-			conf: c,
-			ctx:  ctx,
-			code: code,
+// Client returns an HTTP client using the provided token.
+// The token will auto-refresh as necessary. The underlying
+// HTTP transport will be obtained using the provided context.
+func (c *Config) Client(ctx Context, t *Token) *http.Client {
+	return &http.Client{
+		Transport: &Transport{
+			Source: c.TokenSource(ctx, t),
+			Base:   contextClient(ctx).Transport,
 		},
-		Base: contextClient(ctx).Transport,
 	}
 }
 
-// NewTransportFromToken returns a new Transport using the provided token.
-func (c *Config) NewTransportFromToken(ctx Context, t *Token) *Transport {
-	return &Transport{
-		Source: &tokenRefresher{
-			conf: c,
-			ctx:  ctx,
-			t:    t,
-		},
-		Base: contextClient(ctx).Transport,
+// TokenSource returns a TokenSource that returns t until t expires,
+// automatically refreshing it as necessary using the provided context.
+// See the the Context documentation.
+//
+// Most users will use Config.Client instead.
+func (c *Config) TokenSource(ctx Context, t *Token) TokenSource {
+	return &tokenRefresher{
+		conf: c,
+		ctx:  ctx,
+		t:    t,
 	}
 }
 
@@ -257,7 +263,6 @@ func (c *Config) NewTransportFromToken(ctx Context, t *Token) *Transport {
 type tokenRefresher struct {
 	conf *Config
 	ctx  Context
-	code string // if set, used on first call to populate t
 
 	mu sync.Mutex // guards t
 	t  *Token
@@ -270,15 +275,7 @@ func (r *tokenRefresher) Token() (*Token, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.t == nil {
-		if r.code == "" {
-			return nil, errors.New("oauth2: attempted use of nil Token")
-
-		}
-		t, err := r.conf.exchange(r.ctx, r.code)
-		if err != nil {
-			return nil, err
-		}
-		r.t = t
+		return nil, errors.New("oauth2: attempted use of nil Token")
 	}
 	if !r.t.Expired() {
 		return r.t, nil
@@ -298,18 +295,18 @@ func (r *tokenRefresher) Token() (*Token, error) {
 }
 
 func retrieveToken(hc *http.Client, c *Config, v url.Values) (*Token, error) {
-	v.Set("client_id", c.Client.ID)
+	v.Set("client_id", c.ClientID)
 	bustedAuth := !providerAuthHeaderWorks(c.Endpoint.TokenURL)
-	if bustedAuth && c.Client.Secret != "" {
-		v.Set("client_secret", c.Client.Secret)
+	if bustedAuth && c.ClientSecret != "" {
+		v.Set("client_secret", c.ClientSecret)
 	}
 	req, err := http.NewRequest("POST", c.Endpoint.TokenURL, strings.NewReader(v.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if !bustedAuth && c.Client.Secret != "" {
-		req.SetBasicAuth(c.Client.ID, c.Client.Secret)
+	if !bustedAuth && c.ClientSecret != "" {
+		req.SetBasicAuth(c.ClientID, c.ClientSecret)
 	}
 	r, err := hc.Do(req)
 	if err != nil {
