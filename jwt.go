@@ -46,7 +46,7 @@ type JWTConfig struct {
 	// Scopes optionally specifies a list of requested permission scopes.
 	Scopes []string
 
-	// ToenURL is the endpoint required to complete the 2-legged JWT flow.
+	// TokenURL is the endpoint required to complete the 2-legged JWT flow.
 	TokenURL string
 }
 
