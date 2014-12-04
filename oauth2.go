@@ -55,6 +55,7 @@ type Config struct {
 
 // A TokenSource is anything that can return a token.
 type TokenSource interface {
+	// Token returns a token or an error.
 	Token() (*Token, error)
 }
 
@@ -98,7 +99,11 @@ func (t *Token) Type() string {
 	return "Bearer"
 }
 
-// SetAuthHeader sets the Authorization header to r using the access token in t.
+// SetAuthHeader sets the Authorization header to r using the access
+// token in t.
+//
+// This method is unnecessary when using Transport or an HTTP Client
+// returned by this package.
 func (t *Token) SetAuthHeader(r *http.Request) {
 	r.Header.Set("Authorization", t.Type()+" "+t.AccessToken)
 }

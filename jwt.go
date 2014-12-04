@@ -53,6 +53,9 @@ type JWTConfig struct {
 // TokenSource returns a JWT TokenSource using the configuration
 // in c and the HTTP client from the provided context.
 //
+// The returned TokenSource only does JWT requests when necessary but
+// otherwise returns the same token repeatedly until it expires.
+//
 // The provided initialToken may be nil, in which case the first
 // call to TokenSource will do a new JWT request.
 func (c *JWTConfig) TokenSource(ctx Context, initialToken *Token) TokenSource {
