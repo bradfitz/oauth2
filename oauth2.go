@@ -53,15 +53,6 @@ type Config struct {
 	Scopes []string
 }
 
-// ClientInfo contains the Client ID and secret.
-type ClientInfo struct {
-	// ID is the application's Client ID.
-	ID string
-
-	// Secret is the application's Client Secret.
-	Secret string
-}
-
 // A TokenSource is anything that can return a token.
 type TokenSource interface {
 	Token() (*Token, error)
@@ -247,22 +238,45 @@ func (c *Config) Client(ctx Context, t *Token) *http.Client {
 //
 // Most users will use Config.Client instead.
 func (c *Config) TokenSource(ctx Context, t *Token) TokenSource {
-	return &tokenRefresher{
-		conf: c,
-		ctx:  ctx,
-		t:    t,
+	nwn := &newWhenNeededSource{t: t}
+	nwn.new = tokenRefresher{
+		ctx:      ctx,
+		conf:     c,
+		oldToken: &nwn.t,
 	}
+	return nwn
 }
 
-// tokenRefresher is a TokenSource that holds a single token in memory
+// tokenRefresher is a TokenSource that makes "grant_type"=="refresh_token"
+// HTTP requests to renew a token using a RefreshToken.
+type tokenRefresher struct {
+	ctx      Context // used to get HTTP requests
+	conf     *Config
+	oldToken **Token // pointer to old *Token w/ RefreshToken
+}
+
+func (tf tokenRefresher) Token() (*Token, error) {
+	t := *tf.oldToken
+	if t == nil {
+		return nil, errors.New("oauth2: attempted use of nil Token")
+	}
+	if t.RefreshToken == "" {
+		return nil, errors.New("oauth2: token expired and refresh token is not set")
+	}
+	return retrieveToken(contextClient(tf.ctx), tf.conf, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {t.RefreshToken},
+	})
+}
+
+// newWhenNeededSource is a TokenSource that holds a single token in memory
 // and validates its expiry before each call to retrieve it with
 // Token. If it's expired, it will be auto-refreshed using the
-// provided Context.
+// new TokenSource.
 //
 // The first call to TokenRefresher must be SetToken.
-type tokenRefresher struct {
-	conf *Config
-	ctx  Context
+type newWhenNeededSource struct {
+	new TokenSource // called when t is expired.
 
 	mu sync.Mutex // guards t
 	t  *Token
@@ -271,26 +285,17 @@ type tokenRefresher struct {
 // Token returns the current token if it's still valid, else will
 // refresh the current token (using r.Context for HTTP client
 // information) and return the new one.
-func (r *tokenRefresher) Token() (*Token, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.t == nil {
-		return nil, errors.New("oauth2: attempted use of nil Token")
+func (s *newWhenNeededSource) Token() (*Token, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.t != nil && !s.t.Expired() {
+		return s.t, nil
 	}
-	if !r.t.Expired() {
-		return r.t, nil
-	}
-	if r.t.RefreshToken == "" {
-		return nil, errors.New("oauth2: token expired and refresh token is not set")
-	}
-	t, err := retrieveToken(contextClient(r.ctx), r.conf, url.Values{
-		"grant_type":    {"refresh_token"},
-		"refresh_token": {r.t.RefreshToken},
-	})
+	t, err := s.new.Token()
 	if err != nil {
 		return nil, err
 	}
-	r.t = t
+	s.t = t
 	return t, nil
 }
 

@@ -50,12 +50,16 @@ type JWTConfig struct {
 	TokenURL string
 }
 
-// TokenSource returns a TokenSource that fetches tokens
-// using HTTP client from the provided context.
+// TokenSource returns a JWT TokenSource using the configuration
+// in c and the HTTP client from the provided context.
 //
-// See the the Context documentation.
-func (c *JWTConfig) TokenSource(ctx Context) TokenSource {
-	return jwtSource{contextClient(ctx), c}
+// The provided initialToken may be nil, in which case the first
+// call to TokenSource will do a new JWT request.
+func (c *JWTConfig) TokenSource(ctx Context, initialToken *Token) TokenSource {
+	return &newWhenNeededSource{
+		t:   initialToken,
+		new: jwtSource{contextClient(ctx), c},
+	}
 }
 
 // Client returns an HTTP client wrapping the context's
@@ -86,6 +90,8 @@ func JWTClient(email string, key []byte) Option {
 }
 */
 
+// jwtSource is a source that always does a signed JWT request for a token.
+// It should typically be wrapped with a newWhenNeededSource.
 type jwtSource struct {
 	client *http.Client
 	conf   *JWTConfig
