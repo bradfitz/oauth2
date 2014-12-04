@@ -65,10 +65,13 @@ func (c *JWTConfig) TokenSource(ctx Context, initialToken *Token) TokenSource {
 // Client returns an HTTP client wrapping the context's
 // HTTP transport and adding Authorization headers with tokens
 // obtained from c.
-func (c *JWTConfig) Client(ctx Context) *http.Client {
+//
+// The provided initialToken may be nil, in which case the first
+// call to TokenSource will do a new JWT request.
+func (c *JWTConfig) Client(ctx Context, initialToken *Token) *http.Client {
 	return &http.Client{
 		Transport: &Transport{
-			Source: c.TokenSource(ctx),
+			Source: c.TokenSource(ctx, initialToken),
 			Base:   contextClient(ctx).Transport,
 		},
 	}
