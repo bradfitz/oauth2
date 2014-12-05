@@ -61,7 +61,7 @@ type JWTConfig struct {
 func (c *JWTConfig) TokenSource(ctx Context, initialToken *Token) TokenSource {
 	return &newWhenNeededSource{
 		t:   initialToken,
-		new: jwtSource{contextClient(ctx), c},
+		new: jwtSource{ctx, c},
 	}
 }
 
@@ -71,13 +71,17 @@ func (c *JWTConfig) TokenSource(ctx Context, initialToken *Token) TokenSource {
 //
 // The provided initialToken may be nil, in which case the first
 // call to TokenSource will do a new JWT request.
-func (c *JWTConfig) Client(ctx Context, initialToken *Token) *http.Client {
+func (c *JWTConfig) Client(ctx Context, initialToken *Token) (*http.Client, error) {
+	hc, err := contextClient(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &http.Client{
 		Transport: &Transport{
 			Source: c.TokenSource(ctx, initialToken),
-			Base:   contextClient(ctx).Transport,
+			Base:   hc.Transport,
 		},
-	}
+	}, nil
 }
 
 // JWTClient requires OAuth 2.0 JWT credentials.
@@ -99,11 +103,15 @@ func JWTClient(email string, key []byte) Option {
 // jwtSource is a source that always does a signed JWT request for a token.
 // It should typically be wrapped with a newWhenNeededSource.
 type jwtSource struct {
-	client *http.Client
-	conf   *JWTConfig
+	ctx  Context
+	conf *JWTConfig
 }
 
 func (js jwtSource) Token() (*Token, error) {
+	hc, err := contextClient(js.ctx)
+	if err != nil {
+		return nil, err
+	}
 	claimSet := &jws.ClaimSet{
 		Iss:   js.conf.Email,
 		Scope: strings.Join(js.conf.Scopes, " "),
@@ -122,11 +130,7 @@ func (js jwtSource) Token() (*Token, error) {
 	v := url.Values{}
 	v.Set("grant_type", defaultGrantType)
 	v.Set("assertion", payload)
-	c := js.client
-	if c == nil {
-		c = http.DefaultClient
-	}
-	resp, err := c.PostForm(js.conf.TokenURL, v)
+	resp, err := hc.PostForm(js.conf.TokenURL, v)
 	if err != nil {
 		return nil, fmt.Errorf("oauth2: cannot fetch token: %v", err)
 	}

@@ -205,8 +205,7 @@ func (c *Config) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 // The code will be in the *http.Request.FormValue("code"). Before
 // calling Exchange, be sure to validate FormValue("state").
 func (c *Config) Exchange(ctx Context, code string) (*Token, error) {
-	cl := contextClient(ctx)
-	return retrieveToken(cl, c, url.Values{
+	return retrieveToken(ctx, c, url.Values{
 		"grant_type":   {"authorization_code"},
 		"code":         {code},
 		"redirect_uri": condVal(c.RedirectURL),
@@ -214,15 +213,46 @@ func (c *Config) Exchange(ctx Context, code string) (*Token, error) {
 	})
 }
 
-func contextClient(ctx Context) *http.Client {
-	if ctx == nil {
-		return http.DefaultClient
+// contextClientFunc is a func which tries to return an *http.Client
+// given a Context value. If it returns an error, the search stops
+// with that error.  If it returns (nil, nil), the search continues
+// down the list of registered funcs.
+type contextClientFunc func(Context) (*http.Client, error)
+
+var contextClientFuncs []contextClientFunc
+
+func registerContextClietnFunc(fn contextClientFunc) {
+	contextClientFuncs = append(contextClientFuncs, fn)
+}
+
+func contextClient(ctx Context) (*http.Client, error) {
+	for _, fn := range contextClientFuncs {
+		c, err := fn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if c != nil {
+			return c, nil
+		}
 	}
 	if xc, ok := ctx.(context.Context); ok {
 		_ = xc
-		panic("TODO: get it from the golang.org/x/net/context.Context")
+		// TODO: get it from the golang.org/x/net/context.Context.
+		// Define some key?
 	}
-	panic("TODO: get it from App Engine")
+	return http.DefaultClient, nil
+}
+
+func contextTransport(ctx Context) http.RoundTripper {
+	hc, err := contextClient(ctx)
+	if err != nil {
+		// This is a rare error case (somebody using nil on App Engine),
+		// so I'd rather not everybody do an error check on this Client
+		// method. They can get the error that they're doing it wrong
+		// later, at client.Get/PostForm time.
+		return errorTransport{err}
+	}
+	return hc.Transport
 }
 
 // Client returns an HTTP client using the provided token.
@@ -232,7 +262,7 @@ func (c *Config) Client(ctx Context, t *Token) *http.Client {
 	return &http.Client{
 		Transport: &Transport{
 			Source: c.TokenSource(ctx, t),
-			Base:   contextClient(ctx).Transport,
+			Base:   contextTransport(ctx),
 		},
 	}
 }
@@ -268,7 +298,7 @@ func (tf tokenRefresher) Token() (*Token, error) {
 	if t.RefreshToken == "" {
 		return nil, errors.New("oauth2: token expired and refresh token is not set")
 	}
-	return retrieveToken(contextClient(tf.ctx), tf.conf, url.Values{
+	return retrieveToken(tf.ctx, tf.conf, url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {t.RefreshToken},
 	})
@@ -304,7 +334,11 @@ func (s *newWhenNeededSource) Token() (*Token, error) {
 	return t, nil
 }
 
-func retrieveToken(hc *http.Client, c *Config, v url.Values) (*Token, error) {
+func retrieveToken(ctx Context, c *Config, v url.Values) (*Token, error) {
+	hc, err := contextClient(ctx)
+	if err != nil {
+		return nil, err
+	}
 	v.Set("client_id", c.ClientID)
 	bustedAuth := !providerAuthHeaderWorks(c.Endpoint.TokenURL)
 	if bustedAuth && c.ClientSecret != "" {
