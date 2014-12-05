@@ -71,17 +71,13 @@ func (c *JWTConfig) TokenSource(ctx Context, initialToken *Token) TokenSource {
 //
 // The provided initialToken may be nil, in which case the first
 // call to TokenSource will do a new JWT request.
-func (c *JWTConfig) Client(ctx Context, initialToken *Token) (*http.Client, error) {
-	hc, err := contextClient(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (c *JWTConfig) Client(ctx Context, initialToken *Token) *http.Client {
 	return &http.Client{
 		Transport: &Transport{
 			Source: c.TokenSource(ctx, initialToken),
-			Base:   hc.Transport,
+			Base:   contextTransport(ctx),
 		},
-	}, nil
+	}
 }
 
 // JWTClient requires OAuth 2.0 JWT credentials.
