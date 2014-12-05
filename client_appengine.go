@@ -24,9 +24,6 @@ func init() {
 }
 
 func contextClientAppEngine(ctx Context) (*http.Client, error) {
-	if r, ok := ctx.(*http.Request); ok {
-		return urlfetch.NewClient(appengine.NewContext(r)), nil
-	}
 	if actx, ok := ctx.(appengine.Context); ok {
 		return urlfetch.NewClient(actx), nil
 	}
